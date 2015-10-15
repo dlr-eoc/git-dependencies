@@ -1,0 +1,259 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# vi: set ft=py
+"""
+Fetch external dependencies from their git repositories and integrate
+them in the working tree.
+
+This tool is configured using a configuration file named
+'dependencies.yml' in the root of the directory.
+
+
+Available commands are:
+    
+    refresh: download all dependencies. When dependencies have been 
+             downloaded before, their repositories will be updated
+             from remote
+
+    init:    alias for 'refresh'
+
+
+Example dependencies.yml configuration file:
+
+----------------------------------------------------------
+---
+remotes:
+    stash:
+        url: http://git.ukis.eoc.dlr.de/scm/
+
+dependencies:
+    /configuration:
+        remote: stash
+        version: master
+        remote_path: mri/configuration-djangoapp
+    /minimal_rest_webhooks:
+        remote: stash
+        version: master
+        remote_path: mri/minimal_rest_webhooks-djangoapp
+----------------------------------------------------------
+"""
+
+import subprocess
+import sys
+import tempfile
+import os.path
+import os
+import contextlib
+import re
+import argparse
+
+# non-stdlib dependencies
+import yaml
+
+SCRIPT_NAME='git-dependencies'
+GIT_BINARY='git'
+CONFIG_FILE_NAME='dependencies.yml'
+DEFAULT_NEW_REMOTE_NAME='dependency-mgmnt'
+
+@contextlib.contextmanager
+def change_cwd(path):
+    old_cwd = os.getcwd()
+    os.chdir(path)
+    yield
+    os.chdir(old_cwd)
+
+def fail(msg, rc=1):
+    sys.stderr.write(msg)
+    sys.stderr.write('\n')
+    sys.exit(rc)
+
+def call(args, cwd=None, echo=True):
+    tmp_out = tempfile.NamedTemporaryFile()
+    
+    if echo:
+        print(' '.join(args))
+    # get english output from git
+    env = os.environ
+    env['LANG'] = 'C'
+    tee = subprocess.Popen(['tee', tmp_out.name],
+            stdin=subprocess.PIPE,
+            stderr=sys.stderr,
+            stdout=sys.stdout if echo else open(os.devnull, 'w'))
+    proc = subprocess.Popen(args, 
+            stdout=tee.stdin, 
+            stdin=sys.stdin,
+            stderr=sys.stderr,
+            cwd=cwd,
+            env=env)
+    proc.communicate()
+    rc = proc.wait()
+    if rc:
+        fail(u"\nCommand {0} failed with RC={1}".format(u' '.join(args), rc), rc=rc)
+    return tmp_out.read()
+
+def repository_root():
+    """get the root directory of the repository we are in"""
+    return call([GIT_BINARY, 'rev-parse', '--show-toplevel'], echo=False).strip()
+    
+def get_configuration():
+    config_file_name = os.path.join(repository_root(), CONFIG_FILE_NAME)
+    if not os.path.exists(config_file_name):
+        raise Exception('There is no configuration file at {0}'.format(config_file_name))
+    with open(config_file_name, 'r') as fh:
+        return yaml.safe_load(fh)
+
+def clone_repo(directory, dep_config, remote):
+    print('cloning from {0}'.format(dep_config['url']))
+    call([GIT_BINARY, 'clone', dep_config['url'], '-b', dep_config['version'], directory], echo=True)
+
+def get_remotes(repo_directory):
+    re_fetch_remote = re.compile(r'^([\w\-]+)[\s]+(.*?)\s*\(fetch\)\s*$')
+    remotes = {}
+    with change_cwd(repo_directory):
+        out = call([GIT_BINARY, 'remote', '-v'], echo=False).strip()
+        for line in out.split('\n'):
+            m = re_fetch_remote.match(line)
+            if m:
+                remotes[m.group(1)]= m.group(2)
+    return remotes
+
+def get_branches(repo_directory):
+    re_branches = re.compile(r'^(.)\s+([^\s]+)\s+([0-9a-f]+)?\s*(\[(.*?)\])?')
+    branches = {}
+    with change_cwd(repo_directory):
+        out = call([GIT_BINARY, 'branch', '-a', '-vv'], echo=False)
+        for line in out.split('\n'):
+            m = re_branches.match(line)
+            if m:
+                branches[m.group(2)]= {
+                    'is_current': m.group(1) == '*',
+                    'tracks': m.group(5),
+                    'is_remote': m.group(2).startswith('remotes/')
+                }
+    return branches
+
+def update_repo(directory, dep_config, remote):
+    print('updating from {0}'.format(dep_config['url']))
+    with change_cwd(directory):
+        # find the matching remote
+        remote_name = None
+        for r_name, r_url in get_remotes(directory).items():
+            if r_url == dep_config['url']:
+                remote_name = r_name
+        if not remote_name: # add the remote
+            remote_name = DEFAULT_NEW_REMOTE_NAME
+            call([GIT_BINARY, 'remote', 'add', remote_name, dep_config['url']])
+
+        # fetch from remote
+        call([GIT_BINARY, 'fetch', '--tags', remote_name])
+
+        branches = get_branches(directory)
+
+        # get the name of the remote branch specifed in the version setting. When
+        # it is a branch. will be None when version is a commit or tag
+        remote_branch = '{0}/{1}'.format(remote_name, dep_config['version']) if 'remotes/{0}/{1}'.format(remote_name, dep_config['version']) in branches.keys() else None
+        
+        # set the local repository on the correct branch and track upstream
+        current_branch = None
+        local_tracking_branch = None # local branch tracking the branch we want to deploy
+        for k, v in branches.items():
+            if v['is_current']:
+                current_branch = k
+            if remote_branch and v['tracks'] == remote_branch:
+                local_tracking_branch = k
+
+        def switch_branch_to(other_branch):
+            call([GIT_BINARY, 'checkout', other_branch])
+            
+        def merge_in_changes(from_branch):
+            call([GIT_BINARY, 'merge', from_branch])
+
+        def create_new_tracking(remote_name, branch):
+            call([GIT_BINARY, 'checkout', '-b', branch, '-t', 'remotes/{0}/{1}'.format(remote_name, branch)])
+
+        def checkout(version):
+            call([GIT_BINARY, 'checkout', version])
+
+        if local_tracking_branch:
+            if current_branch != local_tracking_branch:
+                switch_branch_to(local_tracking_branch)
+            merge_in_changes('remotes/{0}'.format(remote_branch))
+        else:
+            if remote_branch:
+                if dep_config['version'] in branches:
+                    # a local branch with the name exists
+                    if current_branch != dep_config['version']:
+                        checkout(dep_config['version'])
+                    # TODO: maybe set the branch to track upstream, although it may already track a remote
+                    # with another name
+                    merge_in_changes('remotes/{0}'.format(remote_branch))
+                else: 
+                    # create a new local branch to track the remote we want to deploy
+                    create_new_tracking(remote_name, dep_config['version'])
+            else:
+                # the version we want to deploy does not seem to be a branch, so we will simply
+                # check it out
+                checkout(dep_config['version'])
+
+def add_path_to_gitignore(path):
+    repo_root = repository_root()
+    gitignore_name = os.path.join(repo_root, '.gitignore')
+
+    is_present = False
+    new_entry = '/{0}'.format(path.lstrip(' /'))
+    re_new_entry = re.compile(r'^'+re.escape(new_entry)+r'(\s+#.*?)?\s*$')
+    if os.path.exists(gitignore_name):
+        with open(gitignore_name, 'r') as fh:
+            for line in fh:
+                if re_new_entry.match(line):
+                    is_present = True
+                    break
+    if not is_present:
+        with open(gitignore_name, 'a') as fh:
+            fh.write('\n{0} # External git repository. Added by {1}'.format(new_entry, SCRIPT_NAME))
+        
+            
+def refresh_dependencies():
+    config = get_configuration()
+    repo_root = repository_root()
+    for dep_path, dep_config in config.get('dependencies', {}).items():
+        print(u'\n--- path {0}'.format(dep_path))
+
+        dep_path_full = os.path.join(repo_root, dep_path.strip().lstrip('/'))
+
+        if dep_config['remote'] not in config.get('remotes', {}):
+            raise Exception("The remote {0} of {1} is not configured".format(dep_config['remote'], dep_path))
+        remote = config['remotes'][dep_config['remote']]
+
+        # assemble the full url to the remote repository
+        dep_config['url'] = os.path.join(remote['url'], dep_config['remote_path'].lstrip('/')).rstrip('/')
+
+        # default branch
+        dep_config['version'] = dep_config['version'] or 'master'
+
+        if os.path.exists(dep_path_full):
+            update_repo(dep_path_full, dep_config, remote)
+        else:    
+            clone_repo(dep_path_full, dep_config, remote)
+        add_path_to_gitignore(dep_path)
+
+
+def run_cli_app():
+    dispatch = {
+        'refresh': refresh_dependencies,
+        'init': refresh_dependencies,
+    }
+    parser = argparse.ArgumentParser(
+            description=sys.modules[__name__].__doc__,
+            formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument('command', nargs=1, metavar='command',
+            help='The command to execute. Available are {0}'.format(', '.join(dispatch.keys())))
+    args = parser.parse_args()
+    if args.command[0] not in dispatch.keys():
+        fail("Unknown command: {0}".format(args.command))
+    else:
+        dispatch[args.command[0]]()
+
+if __name__ == '__main__':
+    run_cli_app()
