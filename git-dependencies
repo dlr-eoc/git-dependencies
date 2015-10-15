@@ -210,7 +210,7 @@ def add_path_to_gitignore(path):
                     break
     if not is_present:
         with open(gitignore_name, 'a') as fh:
-            fh.write('\n{0} # External git repository. Added by {1}'.format(new_entry, SCRIPT_NAME))
+            fh.write('\n# External git repository. Added by {1}\n{0}'.format(new_entry, SCRIPT_NAME))
         
             
 def refresh_dependencies():
