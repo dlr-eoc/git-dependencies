@@ -95,9 +95,12 @@ def call(args, cwd=None, echo=True):
         fail(u"\nCommand {0} failed with RC={1}".format(u' '.join(args), rc), rc=rc)
     return tmp_out.read()
 
+def git(*args, **kw):
+    return call([GIT_BINARY,]+list(args), **kw)
+
 def repository_root():
     """get the root directory of the repository we are in"""
-    return call([GIT_BINARY, 'rev-parse', '--show-toplevel'], echo=False).strip()
+    return git('rev-parse', '--show-toplevel', echo=False).strip()
 
 def get_configuration():
     repo_root = repository_root()
@@ -131,13 +134,13 @@ def get_configuration():
 
 def clone_repo(directory, dep_config, remote):
     print('cloning from {0}'.format(dep_config['url']))
-    call([GIT_BINARY, 'clone', dep_config['url'], '-b', dep_config['version'], directory], echo=True)
+    git('clone', dep_config['url'], '-b', dep_config['version'], directory, echo=True)
 
 def get_remotes(repo_directory):
     re_fetch_remote = re.compile(r'^([\w\-]+)[\s]+(.*?)\s*\(fetch\)\s*$')
     remotes = {}
     with change_cwd(repo_directory):
-        out = call([GIT_BINARY, 'remote', '-v'], echo=False).strip()
+        out = git('remote', '-v', echo=False).strip()
         for line in out.split('\n'):
             m = re_fetch_remote.match(line)
             if m:
@@ -148,7 +151,7 @@ def get_branches(repo_directory):
     re_branches = re.compile(r'^(.)\s+([^\s]+)\s+([0-9a-f]+)?\s*(\[(.*?)\])?')
     branches = {}
     with change_cwd(repo_directory):
-        out = call([GIT_BINARY, 'branch', '-a', '-vv'], echo=False)
+        out = git('branch', '-a', '-vv', echo=False)
         for line in out.split('\n'):
             m = re_branches.match(line)
             if m:
@@ -169,10 +172,10 @@ def update_repo(directory, dep_config, remote):
                 remote_name = r_name
         if not remote_name: # add the remote
             remote_name = DEFAULT_NEW_REMOTE_NAME
-            call([GIT_BINARY, 'remote', 'add', remote_name, dep_config['url']])
+            git('remote', 'add', remote_name, dep_config['url'])
 
         # fetch from remote
-        call([GIT_BINARY, 'fetch', '--tags', remote_name])
+        git('fetch', '--tags', remote_name)
 
         branches = get_branches(directory)
 
@@ -189,21 +192,18 @@ def update_repo(directory, dep_config, remote):
             if remote_branch and v['tracks'] == remote_branch:
                 local_tracking_branch = k
 
-        def switch_branch_to(other_branch):
-            call([GIT_BINARY, 'checkout', other_branch])
-
         def merge_in_changes(from_branch):
-            call([GIT_BINARY, 'merge', from_branch])
+            git('merge', from_branch)
 
         def create_new_tracking(remote_name, branch):
-            call([GIT_BINARY, 'checkout', '-b', branch, '-t', 'remotes/{0}/{1}'.format(remote_name, branch)])
+            git('checkout', '-b', branch, '-t', 'remotes/{0}/{1}'.format(remote_name, branch))
 
         def checkout(version):
-            call([GIT_BINARY, 'checkout', version])
+            git('checkout', version)
 
         if local_tracking_branch:
             if current_branch != local_tracking_branch:
-                switch_branch_to(local_tracking_branch)
+                checkout(local_tracking_branch)
             merge_in_changes('remotes/{0}'.format(remote_branch))
         else:
             if remote_branch:
