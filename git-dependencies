@@ -10,19 +10,19 @@ Available commands are:
     refresh: download all dependencies. When dependencies have been 
              downloaded before, their repositories will be updated
              from remote
-
     init:    alias for 'refresh'
+    help:    print the help text and exit
 
 
 This tool is configured using a configuration file named
 'dependencies.yml' in the root of the directory.
 
-Additional settings from the file named 'dependencies.override.yml' placed in
-the same directory will be read. Settings from this file will then be used
-to override values specified in the 'dependencies.yml' file. The main purpose
-of this mechanism is changing f.e. URLs during deployments without the need to
-make modification to the version controled 'dependencies.yml' file. This override
-file is optional.
+Additional settings from the file named 'dependencies.override.yml'
+placed in the same directory will be read. Settings from this file will
+then be used to override values specified in the 'dependencies.yml' 
+file. The main purpose of this mechanism is changing f.e. URLs during
+deployments without the need to make modification to the version
+controled 'dependencies.yml' file. This override file is optional.
 
 Example dependencies.yml/dependencies.override.yml configuration file:
 
@@ -266,19 +266,28 @@ def refresh_dependencies(args):
 
 
 def run_cli_app():
-    dispatch = {
-        'refresh': refresh_dependencies,
-        'init': refresh_dependencies,
-    }
     parser = argparse.ArgumentParser(
             description=sys.modules[__name__].__doc__,
             formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    def help_command(args):
+        parser.print_help()
+
+    dispatch = {
+        'refresh': refresh_dependencies,
+        'init': refresh_dependencies,
+        'help': help_command
+    }
+
     parser.add_argument('command', nargs=1, metavar='command',
             help='The command to execute. Available are {0}'.format(', '.join(dispatch.keys())))
     args = parser.parse_args()
+
     if args.command[0] not in dispatch.keys():
-        fail("Unknown command: {0}".format(args.command))
+        fail("Unknown command: {0}.\nAvailable are: {1}".format(
+                args.command[0],
+                ', '.join(dispatch.keys())
+        ))
     else:
         dispatch[args.command[0]](args)
 
