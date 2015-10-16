@@ -1,0 +1,14 @@
+---
+remotes:
+    stash:
+        url: http://git.ukis.eoc.dlr.de/scm/
+
+dependencies:
+    /configuration:
+        remote: stash
+        version: master
+        remote_path: mri/configuration-djangoapp
+    /minimal_rest_webhooks:
+        remote: stash
+        version: master
+        remote_path: mri/minimal_rest_webhooks-djangoapp
