@@ -56,7 +56,6 @@ import argparse
 # non-stdlib dependencies
 import yaml
 
-SCRIPT_NAME='git-dependencies'
 GIT_BINARY='git'
 DEFAULT_NEW_REMOTE_NAME='dependency-mgmnt'
 
@@ -237,7 +236,7 @@ def add_path_to_gitignore(path):
                     break
     if not is_present:
         with open(gitignore_name, 'a') as fh:
-            fh.write('\n# External git repository. Added by {1}\n{0}'.format(new_entry, SCRIPT_NAME))
+            fh.write('\n# External git repository. Added by {1}\n{0}'.format(new_entry, sys.argv[0]))
 
 
 def refresh_dependencies(args):
