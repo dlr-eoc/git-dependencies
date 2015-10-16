@@ -5,10 +5,6 @@
 Fetch external dependencies from their git repositories and integrate
 them in the working tree.
 
-This tool is configured using a configuration file named
-'dependencies.yml' in the root of the directory.
-
-
 Available commands are:
     
     refresh: download all dependencies. When dependencies have been 
@@ -18,7 +14,17 @@ Available commands are:
     init:    alias for 'refresh'
 
 
-Example dependencies.yml configuration file:
+This tool is configured using a configuration file named
+'dependencies.yml' in the root of the directory.
+
+Additional settings from the file named 'dependencies.override.yml' placed in
+the same directory will be read. Settings from this file will then be used
+to override values specified in the 'dependencies.yml' file. The main purpose
+of this mechanism is changing f.e. URLs during deployments without the need to
+make modification to the version controled 'dependencies.yml' file. This override
+file is optional.
+
+Example dependencies.yml/dependencies.override.yml configuration file:
 
 ----------------------------------------------------------
 ---
@@ -52,7 +58,6 @@ import yaml
 
 SCRIPT_NAME='git-dependencies'
 GIT_BINARY='git'
-CONFIG_FILE_NAME='dependencies.yml'
 DEFAULT_NEW_REMOTE_NAME='dependency-mgmnt'
 
 @contextlib.contextmanager
@@ -69,18 +74,17 @@ def fail(msg, rc=1):
 
 def call(args, cwd=None, echo=True):
     tmp_out = tempfile.NamedTemporaryFile()
-    
     if echo:
         print(' '.join(args))
-    # get english output from git
+
     env = os.environ
-    env['LANG'] = 'C'
+    env['LANG'] = 'C' # get english output from git
     tee = subprocess.Popen(['tee', tmp_out.name],
             stdin=subprocess.PIPE,
             stderr=sys.stderr,
             stdout=sys.stdout if echo else open(os.devnull, 'w'))
-    proc = subprocess.Popen(args, 
-            stdout=tee.stdin, 
+    proc = subprocess.Popen(args,
+            stdout=tee.stdin,
             stdin=sys.stdin,
             stderr=sys.stderr,
             cwd=cwd,
@@ -94,13 +98,36 @@ def call(args, cwd=None, echo=True):
 def repository_root():
     """get the root directory of the repository we are in"""
     return call([GIT_BINARY, 'rev-parse', '--show-toplevel'], echo=False).strip()
-    
+
 def get_configuration():
-    config_file_name = os.path.join(repository_root(), CONFIG_FILE_NAME)
+    repo_root = repository_root()
+    config_file_name = os.path.join(repo_root, 'dependencies.yml')
+    config_override_file_name = os.path.join(repo_root, 'dependencies.override.yml')
+
+    def load_config(filename):
+        with open(filename, 'r') as fh:
+            return yaml.safe_load(fh)
+        return {}
+
+    def merge_dicts(d1, d2):
+        """merge d2 into d1. in-place operation"""
+        # MEMO: does not handle lists currently
+        for k, v in d2.items():
+            if (k in d1 and isinstance(d1[k], dict) and isinstance(d2[k], dict)):
+                merge_dicts(d1[k], d2[k])
+            else:
+                d1[k] = d2[k]
+
     if not os.path.exists(config_file_name):
         raise Exception('There is no configuration file at {0}'.format(config_file_name))
-    with open(config_file_name, 'r') as fh:
-        return yaml.safe_load(fh)
+    config = load_config(config_file_name)
+    
+    if os.path.exists(config_override_file_name):
+        print('Using the configuration overrides from {0}'.format(config_override_file_name))
+        config_override = load_config(config_override_file_name)
+        merge_dicts(config, config_override)
+
+    return config
 
 def clone_repo(directory, dep_config, remote):
     print('cloning from {0}'.format(dep_config['url']))
@@ -152,7 +179,7 @@ def update_repo(directory, dep_config, remote):
         # get the name of the remote branch specifed in the version setting. When
         # it is a branch. will be None when version is a commit or tag
         remote_branch = '{0}/{1}'.format(remote_name, dep_config['version']) if 'remotes/{0}/{1}'.format(remote_name, dep_config['version']) in branches.keys() else None
-        
+
         # set the local repository on the correct branch and track upstream
         current_branch = None
         local_tracking_branch = None # local branch tracking the branch we want to deploy
@@ -164,7 +191,7 @@ def update_repo(directory, dep_config, remote):
 
         def switch_branch_to(other_branch):
             call([GIT_BINARY, 'checkout', other_branch])
-            
+
         def merge_in_changes(from_branch):
             call([GIT_BINARY, 'merge', from_branch])
 
@@ -187,7 +214,7 @@ def update_repo(directory, dep_config, remote):
                     # TODO: maybe set the branch to track upstream, although it may already track a remote
                     # with another name
                     merge_in_changes('remotes/{0}'.format(remote_branch))
-                else: 
+                else:
                     # create a new local branch to track the remote we want to deploy
                     create_new_tracking(remote_name, dep_config['version'])
             else:
@@ -211,9 +238,9 @@ def add_path_to_gitignore(path):
     if not is_present:
         with open(gitignore_name, 'a') as fh:
             fh.write('\n# External git repository. Added by {1}\n{0}'.format(new_entry, SCRIPT_NAME))
-        
-            
-def refresh_dependencies():
+
+
+def refresh_dependencies(args):
     config = get_configuration()
     repo_root = repository_root()
     for dep_path, dep_config in config.get('dependencies', {}).items():
@@ -233,7 +260,7 @@ def refresh_dependencies():
 
         if os.path.exists(dep_path_full):
             update_repo(dep_path_full, dep_config, remote)
-        else:    
+        else:
             clone_repo(dep_path_full, dep_config, remote)
         add_path_to_gitignore(dep_path)
 
@@ -253,7 +280,7 @@ def run_cli_app():
     if args.command[0] not in dispatch.keys():
         fail("Unknown command: {0}".format(args.command))
     else:
-        dispatch[args.command[0]]()
+        dispatch[args.command[0]](args)
 
 if __name__ == '__main__':
     run_cli_app()
