@@ -8,3 +8,8 @@
 /lib/
 /local/
 
+
+# External git repository. Added by /home/nico/repos/git-dependencies/bin/git-dependencies
+/minimal_rest_webhooks
+# External git repository. Added by /home/nico/repos/git-dependencies/bin/git-dependencies
+/configuration
