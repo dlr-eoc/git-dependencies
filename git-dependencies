@@ -52,12 +52,20 @@ import os
 import contextlib
 import re
 import argparse
+import getpass
 
 # non-stdlib dependencies
 import yaml
+import pexpect
 
 GIT_BINARY='git'
 DEFAULT_NEW_REMOTE_NAME='dependency-mgmnt'
+
+# global dictionary to store all credentials
+# the user has been asked for.
+# This is a dict mapping the remote url to a dict holding the
+# credentials.
+CREDENTIALS = {}
 
 @contextlib.contextmanager
 def change_cwd(path):
@@ -71,35 +79,61 @@ def fail(msg, rc=1):
     sys.stderr.write('\n')
     sys.exit(rc)
 
-def call(args, cwd=None, echo=True):
-    tmp_out = tempfile.NamedTemporaryFile()
+def git(args, cwd=None, echo=True):
+    global CREDENTIALS
     if echo:
         print(' '.join(args))
 
     env = os.environ
     env['LANG'] = 'C' # get english output from git
-    tee = subprocess.Popen(['tee', tmp_out.name],
-            stdin=subprocess.PIPE,
-            stderr=sys.stderr,
-            stdout=sys.stdout if echo else open(os.devnull, 'w'))
-    proc = subprocess.Popen(args,
-            stdout=tee.stdin,
-            stdin=sys.stdin,
-            stderr=sys.stderr,
+
+    git_proc = pexpect.spawn(GIT_BINARY, list(args),
             cwd=cwd,
             env=env)
-    proc.communicate()
-    rc = proc.wait()
-    if rc:
-        fail(u"\nCommand {0} failed with RC={1}".format(u' '.join(args), rc), rc=rc)
-    return tmp_out.read()
 
-def git(*args, **kw):
-    return call([GIT_BINARY,]+list(args), **kw)
+    eof = False
+    username = None
+    while not eof:
+        idx = git_proc.expect([
+                    pexpect.EOF,
+                    "Username for '(.*?)':",
+                    "Password for '(.*?)':",
+                ])
+        if echo:
+            print(git_proc.before)
+
+        if idx == 0:
+            eof = True
+        else:
+            remote_name = git_proc.match.group(1)
+            if username:
+                remote_name = remote_name.replace('{0}@'.format(username), '')
+            if not remote_name in CREDENTIALS:
+                CREDENTIALS[remote_name] = {}
+
+            if idx == 1:
+                username = CREDENTIALS[remote_name].get('user')
+                if not username:
+                    sys.stdout.write("Username for '{0}':".format(remote_name))
+                    username = sys.stdin.readline().strip()
+                    CREDENTIALS[remote_name]['user'] = username
+                git_proc.sendline(username)
+            elif idx == 2:
+                password = CREDENTIALS[remote_name].get('password')
+                if not password:
+                    password = getpass.getpass("Password for '{0}':".format(remote_name))
+                    CREDENTIALS[remote_name]['password'] = password
+                git_proc.sendline(password)
+
+    git_proc.close() 
+    rc = git_proc.exitstatus
+    if rc:
+        fail(u"\nCommand {0} failed with RC={1}:\n{1}".format(u' '.join(args), rc, git_proc.before), rc=rc)
+    return git_proc.before
 
 def repository_root():
     """get the root directory of the repository we are in"""
-    return git('rev-parse', '--show-toplevel', echo=False).strip()
+    return git(['rev-parse', '--show-toplevel'], echo=False).strip()
 
 def get_configuration():
     repo_root = repository_root()
@@ -133,13 +167,13 @@ def get_configuration():
 
 def clone_repo(directory, dep_config, remote):
     print('cloning from {0}'.format(dep_config['url']))
-    git('clone', dep_config['url'], '-b', dep_config['version'], directory, echo=True)
+    git(['clone', dep_config['url'], '-b', dep_config['version'], directory], echo=True)
 
 def get_remotes(repo_directory):
     re_fetch_remote = re.compile(r'^([\w\-]+)[\s]+(.*?)\s*\(fetch\)\s*$')
     remotes = {}
     with change_cwd(repo_directory):
-        out = git('remote', '-v', echo=False).strip()
+        out = git(['remote', '-v'], echo=False).strip()
         for line in out.split('\n'):
             m = re_fetch_remote.match(line)
             if m:
@@ -150,7 +184,7 @@ def get_branches(repo_directory):
     re_branches = re.compile(r'^(.)\s+([^\s]+)\s+([0-9a-f]+)?\s*(\[(.*?)\])?')
     branches = {}
     with change_cwd(repo_directory):
-        out = git('branch', '-a', '-vv', echo=False)
+        out = git(['branch', '-a', '-vv'], echo=False)
         for line in out.split('\n'):
             m = re_branches.match(line)
             if m:
@@ -171,10 +205,10 @@ def update_repo(directory, dep_config, remote):
                 remote_name = r_name
         if not remote_name: # add the remote
             remote_name = DEFAULT_NEW_REMOTE_NAME
-            git('remote', 'add', remote_name, dep_config['url'])
+            git(['remote', 'add', remote_name, dep_config['url']])
 
         # fetch from remote
-        git('fetch', '--tags', remote_name)
+        git(['fetch', '--tags', remote_name])
 
         branches = get_branches(directory)
 
@@ -192,13 +226,13 @@ def update_repo(directory, dep_config, remote):
                 local_tracking_branch = k
 
         def merge_in_changes(from_branch):
-            git('merge', from_branch)
+            git(['merge', from_branch])
 
         def create_new_tracking(remote_name, branch):
-            git('checkout', '-b', branch, '-t', 'remotes/{0}/{1}'.format(remote_name, branch))
+            git(['checkout', '-b', branch, '-t', 'remotes/{0}/{1}'.format(remote_name, branch)])
 
         def checkout(version):
-            git('checkout', version)
+            git(['checkout', version])
 
         if local_tracking_branch:
             if current_branch != local_tracking_branch:

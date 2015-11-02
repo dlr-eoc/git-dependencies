@@ -8,5 +8,5 @@ setup(name='git-dependencies',
     author='Nico Mandery',
     author_email='nico.mandery@dlr.de',
     scripts=['git-dependencies'],
-    install_requires=['PyYAML>=3.0']
+    install_requires=['PyYAML>=3.0', 'pexpect>=3.1']
 )
