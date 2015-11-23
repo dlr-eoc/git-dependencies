@@ -31,6 +31,7 @@ Example dependencies.yml/dependencies.override.yml configuration file:
 remotes:
     stash:
         url: http://git.ukis.eoc.dlr.de/scm/
+        use_target_as_remote_path: no
 
 dependencies:
     /configuration:
@@ -42,6 +43,11 @@ dependencies:
         version: master
         remote_path: mri/minimal_rest_webhooks-djangoapp
 ----------------------------------------------------------
+
+The remotes.?.use_target_as_remote_path directive is useful when cloning
+a directory already managed by git-dependencies. When the directive is
+true, the target of a dependency will be used as the remote_path setting.
+This directive defaults to False and is optional.
 """
 
 import argparse
@@ -270,6 +276,11 @@ def add_path_to_gitignore(path):
         with open(gitignore_name, 'a') as fh:
             fh.write('\n# External git repository. Added by {1}\n{0}'.format(new_entry, sys.argv[0]))
 
+def to_bool(strval):
+    """convert a string value to an boolean"""
+    if strval and (isinstance(strval, str) or isinstance(strval, unicode)):
+        return strval.lower().strip() in ('true', 'yes', '1', 't')
+    return strval
 
 def refresh_dependencies(args):
     config = get_configuration()
@@ -293,7 +304,10 @@ def refresh_dependencies(args):
         remote = config['remotes'][dep_config['remote']]
 
         # assemble the full url to the remote repository
-        dep_config['url'] = os.path.join(remote['url'], dep_config['remote_path'].lstrip('/')).rstrip('/')
+        remote_path = dep_config['remote_path'].lstrip('/')
+        if to_bool(remote.get('use_target_as_remote_path', False)):
+            remote_path = dep_path_clean
+        dep_config['url'] = os.path.join(remote['url'], remote_path).rstrip('/')
 
         # default branch
         dep_config['version'] = dep_config['version'] or 'master'

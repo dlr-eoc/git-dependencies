@@ -2,6 +2,7 @@
 remotes:
     stash:
         url: http://git.ukis.eoc.dlr.de/scm/
+        use_target_as_remote_path: no
 
 dependencies:
     /configuration:
