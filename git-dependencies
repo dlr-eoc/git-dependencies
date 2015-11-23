@@ -277,7 +277,16 @@ def refresh_dependencies(args):
     for dep_path, dep_config in config.get('dependencies', {}).items():
         print(u'\n--- path {0}'.format(dep_path))
 
-        dep_path_full = os.path.join(repo_root, dep_path.strip().lstrip('/'))
+        dep_path_clean = dep_path.strip().lstrip('/')
+
+        # create nested directories if neccessary
+        if os.path.dirname(dep_path_clean):
+            try:
+                os.makedirs(os.path.join(repo_root, os.path.dirname(dep_path_clean)))
+            except os.error:
+                pass # already exists or real error
+
+        dep_path_full = os.path.join(repo_root, dep_path_clean)
 
         if dep_config['remote'] not in config.get('remotes', {}):
             raise Exception("The remote {0} of {1} is not configured".format(dep_config['remote'], dep_path))
