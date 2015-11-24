@@ -73,6 +73,13 @@ DEFAULT_NEW_REMOTE_NAME='dependency-mgmnt'
 # credentials.
 CREDENTIALS = collections.defaultdict(dict)
 
+# primitives
+Branch = collections.namedtuple('Branch', ['is_current', 'tracks', 'is_remote', 'name'])
+Remote = collections.namedtuple('Remote', ['url', 'use_target_as_remote_path'])
+Dependency = collections.namedtuple('Dependency', ['remote', 'version', 'remote_path', 'path'])
+Configuration = collections.namedtuple('Configuration', ['remotes', 'dependencies'])
+Repository = collections.namedtuple('Repository', ['url', 'version', 'directory'])
+
 @contextlib.contextmanager
 def change_cwd(path):
     old_cwd = os.getcwd()
@@ -139,6 +146,12 @@ def repository_root():
     """get the root directory of the repository we are in"""
     return git(['rev-parse', '--show-toplevel'], echo=False).strip()
 
+def to_bool(strval):
+    """convert a string value to an boolean"""
+    if strval and (isinstance(strval, str) or isinstance(strval, unicode)):
+        return strval.lower().strip() in ('true', 'yes', '1', 't')
+    return strval
+
 def get_configuration():
     repo_root = repository_root()
     config_file_name = os.path.join(repo_root, 'dependencies.yml')
@@ -167,11 +180,25 @@ def get_configuration():
         config_override = load_config(config_override_file_name)
         merge_dicts(config, config_override)
 
-    return config
+    dependencies = {}
+    for path, v in config.get('dependencies', {}).items():
+        dependencies[path] = Dependency(
+                path=path,
+                version=v.get('version') or 'master',
+                remote=v['remote'],
+                remote_path=v['remote_path']
+        )
+    remotes = {}
+    for name, v in config.get('remotes', {}).items():
+        remotes[name] = Remote(
+                url=v['url'],
+                use_target_as_remote_path=to_bool(v.get('use_target_as_remote_path', False))
+        )
+    return Configuration(remotes=remotes, dependencies=dependencies)
 
-def clone_repo(directory, dep_config, remote):
-    print('cloning from {0}'.format(dep_config['url']))
-    git(['clone', dep_config['url'], '-b', dep_config['version'], directory], echo=True)
+def clone_repo(repository, remote):
+    print('cloning from {0}'.format(repository.url))
+    git(['clone', repository.url, '-b', repository.version, repository.directory], echo=True)
 
 def get_remotes(repo_directory):
     re_fetch_remote = re.compile(r'^([\w\-]+)[\s]+(.*?)\s*\(fetch\)\s*$')
@@ -192,44 +219,45 @@ def get_branches(repo_directory):
         for line in out.split('\n'):
             m = re_branches.match(line)
             if m:
-                branches[m.group(2)]= {
-                    'is_current': m.group(1) == '*',
-                    'tracks': m.group(5),
-                    'is_remote': m.group(2).startswith('remotes/')
-                }
+                branches[m.group(2)] = Branch(
+                        name=m.group(2),
+                        is_current=(m.group(1) == '*'),
+                        tracks=m.group(5),
+                        is_remote = m.group(2).startswith('remotes/')
+                )
     return branches
 
-def update_repo(directory, dep_config, remote):
-    print('updating from {0}'.format(dep_config['url']))
-    with change_cwd(directory):
+def update_repo(repository, remote):
+    print('updating from {0}'.format(repository.url))
+    with change_cwd(repository.directory):
         # find the matching remote
         remote_name = None
-        for r_name, r_url in get_remotes(directory).items():
-            if r_url == dep_config['url']:
+        for r_name, r_url in get_remotes(repository.directory).items():
+            if r_url == repository.url:
                 remote_name = r_name
         if not remote_name: # add the remote
             m = hashlib.md5()
-            m.update(dep_config['url'])
+            m.update(repository.url)
             remote_name = "{0}_{1}".format(DEFAULT_NEW_REMOTE_NAME,m.hexdigest()[:10])
-            git(['remote', 'add', remote_name, dep_config['url']])
+            git(['remote', 'add', remote_name, repository.url])
 
         # fetch from remote
         git(['fetch', '--tags', remote_name])
 
-        branches = get_branches(directory)
+        branches = get_branches(repository.directory)
 
         # get the name of the remote branch specifed in the version setting. When
         # it is a branch. will be None when version is a commit or tag
-        remote_branch = '{0}/{1}'.format(remote_name, dep_config['version']) if 'remotes/{0}/{1}'.format(remote_name, dep_config['version']) in branches.keys() else None
+        remote_branch = '{0}/{1}'.format(remote_name, repository.version) if 'remotes/{0}/{1}'.format(remote_name, repository.version) in branches.keys() else None
 
         # set the local repository on the correct branch and track upstream
         current_branch = None
         local_tracking_branch = None # local branch tracking the branch we want to deploy
-        for k, v in branches.items():
-            if v['is_current']:
-                current_branch = k
-            if remote_branch and v['tracks'] == remote_branch:
-                local_tracking_branch = k
+        for branch_name, branch in branches.items():
+            if branch.is_current:
+                current_branch = branch_name
+            if remote_branch and branch.tracks == remote_branch:
+                local_tracking_branch = branch_name
 
         def merge_in_changes(from_branch):
             git(['merge', from_branch])
@@ -246,20 +274,20 @@ def update_repo(directory, dep_config, remote):
             merge_in_changes('remotes/{0}'.format(remote_branch))
         else:
             if remote_branch:
-                if dep_config['version'] in branches:
+                if repository.version in branches:
                     # a local branch with the name exists
-                    if current_branch != dep_config['version']:
-                        checkout(dep_config['version'])
+                    if current_branch != repository.version:
+                        checkout(repository.version)
                     # TODO: maybe set the branch to track upstream, although it may already track a remote
                     # with another name
                     merge_in_changes('remotes/{0}'.format(remote_branch))
                 else:
                     # create a new local branch to track the remote we want to deploy
-                    create_new_tracking(remote_name, dep_config['version'])
+                    create_new_tracking(remote_name, repository.version)
             else:
                 # the version we want to deploy does not seem to be a branch, so we will simply
                 # check it out
-                checkout(dep_config['version'])
+                checkout(repository.version)
 
 def add_path_to_gitignore(path):
     repo_root = repository_root()
@@ -278,16 +306,10 @@ def add_path_to_gitignore(path):
         with open(gitignore_name, 'a') as fh:
             fh.write('\n# External git repository. Added by {1}\n{0}'.format(new_entry, sys.argv[0]))
 
-def to_bool(strval):
-    """convert a string value to an boolean"""
-    if strval and (isinstance(strval, str) or isinstance(strval, unicode)):
-        return strval.lower().strip() in ('true', 'yes', '1', 't')
-    return strval
-
 def refresh_dependencies(args):
     config = get_configuration()
     repo_root = repository_root()
-    for dep_path, dep_config in config.get('dependencies', {}).items():
+    for dep_path, dependency in config.dependencies.items():
         print(u'\n--- path {0}'.format(dep_path))
 
         dep_path_clean = dep_path.strip().lstrip('/')
@@ -301,23 +323,23 @@ def refresh_dependencies(args):
 
         dep_path_full = os.path.join(repo_root, dep_path_clean)
 
-        if dep_config['remote'] not in config.get('remotes', {}):
-            raise Exception("The remote {0} of {1} is not configured".format(dep_config['remote'], dep_path))
-        remote = config['remotes'][dep_config['remote']]
+        if dependency.remote not in config.remotes:
+            raise Exception("The remote {0} of {1} is not configured".format(dependency.remote, dep_path))
+        remote = config.remotes[dependency.remote]
 
         # assemble the full url to the remote repository
-        remote_path = dep_config['remote_path'].lstrip('/')
-        if to_bool(remote.get('use_target_as_remote_path', False)):
-            remote_path = dep_path_clean
-        dep_config['url'] = os.path.join(remote['url'], remote_path).rstrip('/')
+        remote_path = dependency.remote_path.lstrip('/') if not remote.use_target_as_remote_path else dep_path_clean
 
-        # default branch
-        dep_config['version'] = dep_config['version'] or 'master'
+        repository = Repository(
+                url=os.path.join(remote.url, remote_path).rstrip('/'),
+                version=dependency.version,
+                directory=dep_path_full
+        )
 
-        if os.path.exists(dep_path_full):
-            update_repo(dep_path_full, dep_config, remote)
+        if os.path.exists(repository.directory):
+            update_repo(repository, remote)
         else:
-            clone_repo(dep_path_full, dep_config, remote)
+            clone_repo(repository, remote)
         add_path_to_gitignore(dep_path)
 
 
