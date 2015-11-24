@@ -57,6 +57,7 @@ import os
 import os.path
 import re
 import sys
+import hashlib
 
 # non-stdlib dependencies
 import yaml
@@ -208,7 +209,9 @@ def update_repo(directory, dep_config, remote):
             if r_url == dep_config['url']:
                 remote_name = r_name
         if not remote_name: # add the remote
-            remote_name = DEFAULT_NEW_REMOTE_NAME
+            m = hashlib.md5()
+            m.update(dep_config['url'])
+            remote_name = "{0}_{1}".format(DEFAULT_NEW_REMOTE_NAME,m.hexdigest()[:10])
             git(['remote', 'add', remote_name, dep_config['url']])
 
         # fetch from remote
