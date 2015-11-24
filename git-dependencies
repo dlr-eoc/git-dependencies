@@ -58,6 +58,7 @@ import os.path
 import re
 import sys
 import hashlib
+import collections
 
 # non-stdlib dependencies
 import yaml
@@ -70,7 +71,7 @@ DEFAULT_NEW_REMOTE_NAME='dependency-mgmnt'
 # the user has been asked for.
 # This is a dict mapping the remote url to a dict holding the
 # credentials.
-CREDENTIALS = {}
+CREDENTIALS = collections.defaultdict(dict)
 
 @contextlib.contextmanager
 def change_cwd(path):
@@ -113,8 +114,6 @@ def git(args, cwd=None, echo=True):
             remote_name = git_proc.match.group(1)
             if username:
                 remote_name = remote_name.replace('{0}@'.format(username), '')
-            if not remote_name in CREDENTIALS:
-                CREDENTIALS[remote_name] = {}
 
             if idx == 1:
                 username = CREDENTIALS[remote_name].get('user')
