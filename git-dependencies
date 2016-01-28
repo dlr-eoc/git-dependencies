@@ -191,19 +191,32 @@ def get_configuration():
         config_override = load_config(config_override_file_name)
         merge_dicts(config, config_override)
 
-    dependencies = {}
-    for path, v in config.get('dependencies', {}).items():
-        dependencies[path] = Dependency(
-                path=path,
-                version=v.get('version') or 'master',
-                remote=v['remote'],
-                remote_path=v['remote_path']
-        )
     remotes = {}
     for name, v in config.get('remotes', {}).items():
         remotes[name] = Remote(
                 url=v['url'],
                 use_target_as_remote_path=to_bool(v.get('use_target_as_remote_path', False))
+        )
+
+    dependencies = {}
+    for path, v in config.get('dependencies', {}).items():
+        remote = remotes[v['remote']]
+
+        remote_path = None
+        if v.get('remote_path'):
+            # explicit definition always overrides
+            remote_path = v['remote_path']
+        elif remote.use_target_as_remote_path:
+            remote_path = path
+
+        if not remote_path:
+            fail(u"Got no remote path to fetch the repository at {0} from.".format(path))
+            
+        dependencies[path] = Dependency(
+                path=path,
+                version=v.get('version') or 'master',
+                remote=v['remote'],
+                remote_path=remote_path
         )
     return Configuration(remotes=remotes, dependencies=dependencies)
 
@@ -338,11 +351,8 @@ def refresh_dependencies(args):
             raise Exception("The remote {0} of {1} is not configured".format(dependency.remote, dep_path))
         remote = config.remotes[dependency.remote]
 
-        # assemble the full url to the remote repository
-        remote_path = dependency.remote_path.lstrip('/') if not remote.use_target_as_remote_path else dep_path_clean
-
         repository = Repository(
-                url=os.path.join(remote.url, remote_path).rstrip('/'),
+                url=os.path.join(remote.url, dep_path_clean).rstrip('/'),
                 version=dependency.version,
                 directory=dep_path_full
         )
