@@ -80,6 +80,14 @@ Dependency = collections.namedtuple('Dependency', ['remote', 'version', 'remote_
 Configuration = collections.namedtuple('Configuration', ['remotes', 'dependencies'])
 Repository = collections.namedtuple('Repository', ['url', 'version', 'directory'])
 
+class GitError(IOError):
+
+    rc = None
+
+    def __init__(self, message, rc=1):
+        super(GitError, self).__init__(message)
+        self.rc = rc
+
 @contextlib.contextmanager
 def change_cwd(path):
     old_cwd = os.getcwd()
@@ -139,12 +147,15 @@ def git(args, cwd=None, echo=True):
     git_proc.close() 
     rc = git_proc.exitstatus
     if rc:
-        fail(u"\nCommand {0} failed with RC={1}:\n{1}".format(u' '.join(args), rc, git_proc.before), rc=rc)
+        raise GitError( u"\nCommand {0} failed with RC={1}:\n{1}".format(u' '.join(args), rc, git_proc.before), rc=rc)
     return git_proc.before
 
 def repository_root():
-    """get the root directory of the repository we are in"""
-    return git(['rev-parse', '--show-toplevel'], echo=False).strip()
+    """get the root directory of the repository we are in."""
+    try:
+        return git(['rev-parse', '--show-toplevel'], echo=False).strip()
+    except GitError:
+        return os.getcwd()
 
 def to_bool(strval):
     """convert a string value to an boolean"""
@@ -367,7 +378,10 @@ def run_cli_app():
                 ', '.join(dispatch.keys())
         ))
     else:
-        dispatch[args.command[0]](args)
+        try:
+            dispatch[args.command[0]](args)
+        except GitError, e:
+            fail(e.message, rc=e.rc)
 
 if __name__ == '__main__':
     run_cli_app()
