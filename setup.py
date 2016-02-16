@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(name='git-dependencies',
-    version='0.1.0',
+    version='0.2.0',
     description='Fetch external dependencies from their git repositories and integrate them in the working tree.',
     author='Nico Mandery',
     author_email='nico.mandery@dlr.de',

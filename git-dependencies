@@ -59,6 +59,8 @@ import re
 import sys
 import hashlib
 import collections
+import tempfile
+import stat
 
 # non-stdlib dependencies
 import yaml
@@ -75,7 +77,7 @@ CREDENTIALS = collections.defaultdict(dict)
 
 # primitives
 Branch = collections.namedtuple('Branch', ['is_current', 'tracks', 'is_remote', 'name'])
-Remote = collections.namedtuple('Remote', ['url', 'use_target_as_remote_path'])
+Remote = collections.namedtuple('Remote', ['url', 'use_target_as_remote_path', 'keyfile'])
 Dependency = collections.namedtuple('Dependency', ['remote', 'version', 'remote_path', 'path'])
 Configuration = collections.namedtuple('Configuration', ['remotes', 'dependencies'])
 Repository = collections.namedtuple('Repository', ['url', 'version', 'directory'])
@@ -100,15 +102,29 @@ def fail(msg, rc=1):
     sys.stderr.write('\n')
     sys.exit(rc)
 
-def git(args, cwd=None, echo=True):
+def git(args, cwd=None, echo=True, keyfile=None):
     global CREDENTIALS
+
     if echo:
         print(' '.join(args))
 
     env = os.environ
     env['LANG'] = 'C' # get english output from git
 
-    git_proc = pexpect.spawn(GIT_BINARY, list(args),
+    git_ssh_wrapper = None
+    if keyfile:
+        # create an ssh wrapper script to pass the key to the ssh client
+        git_ssh_wrapper = tempfile.NamedTemporaryFile(delete=True)
+        git_ssh_wrapper.write("#!/bin/bash\nssh -i \"{0}\" \"$@\"".format(keyfile))
+        git_ssh_wrapper.flush()
+
+        # make the wrapper executable
+        st = os.stat(git_ssh_wrapper.name)
+        os.chmod(git_ssh_wrapper.name, st.st_mode | stat.S_IEXEC)
+
+        env['GIT_SSH']=git_ssh_wrapper.name
+        
+    git_proc = pexpect.spawn(GIT_BINARY, args,
             cwd=cwd,
             env=env)
 
@@ -193,8 +209,13 @@ def get_configuration():
 
     remotes = {}
     for name, v in config.get('remotes', {}).items():
+        keyfile = v.get('keyfile')
+        if keyfile:
+            keyfile=os.path.abspath(keyfile)
+
         remotes[name] = Remote(
                 url=v['url'],
+                keyfile=keyfile,
                 use_target_as_remote_path=to_bool(v.get('use_target_as_remote_path', False))
         )
 
@@ -222,7 +243,7 @@ def get_configuration():
 
 def clone_repo(repository, remote):
     print('cloning from {0}'.format(repository.url))
-    git(['clone', repository.url, '-b', repository.version, repository.directory], echo=True)
+    git(['clone', repository.url, '-b', repository.version, repository.directory], echo=True, keyfile=remote.keyfile)
 
 def get_remotes(repo_directory):
     re_fetch_remote = re.compile(r'^([\w\-]+)[\s]+(.*?)\s*\(fetch\)\s*$')
@@ -266,7 +287,7 @@ def update_repo(repository, remote):
             git(['remote', 'add', remote_name, repository.url])
 
         # fetch from remote
-        git(['fetch', '--tags', remote_name])
+        git(['fetch', '--tags', remote_name], keyfile=remote.keyfile)
 
         branches = get_branches(repository.directory)
 
@@ -352,7 +373,7 @@ def refresh_dependencies(args):
         remote = config.remotes[dependency.remote]
 
         repository = Repository(
-                url=os.path.join(remote.url, dep_path_clean).rstrip('/'),
+                url=os.path.join(remote.url, dependency.remote_path).rstrip('/'),
                 version=dependency.version,
                 directory=dep_path_full
         )
