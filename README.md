@@ -12,18 +12,21 @@ Usage
 See "git-dependencies -h":
 
 
-    usage: git-dependencies [-h] command
+    git dependencies -h
+
+    usage: git-dependencies [-h] command [subcommand [subcommand ...]]
 
     Fetch external dependencies from their git repositories and integrate
     them in the working tree.
 
     Available commands are:
         
-        refresh: download all dependencies. When dependencies have been 
-                 downloaded before, their repositories will be updated
-                 from remote
-        init:    alias for 'refresh'
-        help:    print the help text and exit
+        refresh:  download all dependencies. When dependencies have been 
+                  downloaded before, their repositories will be updated
+                  from remote
+        init:     alias for 'refresh'
+        help:     print the help text and exit
+        status:   show the git status all dependencies. 
 
     This tool is configured using a configuration file named
     'dependencies.yml' in the root of the directory.
@@ -61,7 +64,9 @@ See "git-dependencies -h":
     This directive defaults to False and is optional.
 
     positional arguments:
-      command     The command to execute. Available are init, help, refresh
+      command     The command to execute. Available are status, init, help,
+                  refresh
+      subcommand  Command-specific subcommands
 
     optional arguments:
       -h, --help  show this help message and exit
@@ -69,6 +74,3 @@ See "git-dependencies -h":
 
 This tool is regonized by git itself as a subcommand and may also be called
 using git:
-
-    git dependencies -h
-

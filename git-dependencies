@@ -7,11 +7,12 @@ them in the working tree.
 
 Available commands are:
     
-    refresh: download all dependencies. When dependencies have been 
-             downloaded before, their repositories will be updated
-             from remote
-    init:    alias for 'refresh'
-    help:    print the help text and exit
+    refresh:  download all dependencies. When dependencies have been 
+              downloaded before, their repositories will be updated
+              from remote
+    init:     alias for 'refresh'
+    help:     print the help text and exit
+    status:   show the git status all dependencies. 
 
 
 This tool is configured using a configuration file named
@@ -386,6 +387,32 @@ def refresh_dependencies(args):
             clone_repo(repository, remote)
         add_path_to_gitignore(dep_path)
 
+def for_each_dependency(git_command):
+    config = get_configuration()
+    repo_root = repository_root()
+    for dep_path, dependency in config.dependencies.items():
+        print(u'\n--- path {0}'.format(dep_path))
+
+        dep_path_clean = dep_path.strip().lstrip('/')
+        dep_path_full = os.path.join(repo_root, dep_path_clean)
+
+        if dependency.remote not in config.remotes:
+            raise Exception("The remote {0} of {1} is not configured".format(dependency.remote, dep_path))
+        remote = config.remotes[dependency.remote]
+
+        repository = Repository(
+                url=os.path.join(remote.url, dependency.remote_path).rstrip('/'),
+                version=dependency.version,
+                directory=dep_path_full
+        )
+
+        if os.path.exists(repository.directory):
+            with change_cwd(repository.directory):
+                git(git_command, keyfile=remote.keyfile, echo=True)
+        else:
+            print(u'---> does not exist yet - try \'refresh\'')
+
+
 
 def run_cli_app():
     parser = argparse.ArgumentParser(
@@ -394,15 +421,21 @@ def run_cli_app():
     )
     def help_command(args):
         parser.print_help()
+    
+    def status_command(args):
+        for_each_dependency(['status'])
 
     dispatch = {
         'refresh': refresh_dependencies,
         'init': refresh_dependencies,
-        'help': help_command
+        'help': help_command,
+        'status': status_command,
     }
 
     parser.add_argument('command', nargs=1, metavar='command',
             help='The command to execute. Available are {0}'.format(', '.join(dispatch.keys())))
+    parser.add_argument('subcommand', nargs='*', metavar='subcommand',
+            help='Command-specific subcommands')
     args = parser.parse_args()
 
     if args.command[0] not in dispatch.keys():
