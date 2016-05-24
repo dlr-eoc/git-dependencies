@@ -50,6 +50,8 @@ true, the target of a dependency will be used as the remote_path setting.
 This directive defaults to False and is optional.
 """
 
+__version__ = '0.2.1'
+
 import argparse
 import contextlib
 import getpass
