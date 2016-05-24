@@ -51,7 +51,7 @@ true, the target of a dependency will be used as the remote_path setting.
 This directive defaults to False and is optional.
 """
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 
 import argparse
 import contextlib
@@ -263,7 +263,7 @@ def get_branches(repo_directory):
     re_branches = re.compile(r'^(.)\s+([^\s]+)\s+([0-9a-f]+)?\s*(\[(.*?)\])?')
     branches = {}
     with change_cwd(repo_directory):
-        out = git(['branch', '-a', '-vv'], echo=False)
+        out = git(['branch', '-a', '-vv', '--no-color'], echo=False)
         for line in out.split('\n'):
             m = re_branches.match(line)
             if m:
