@@ -300,7 +300,7 @@ def update_repo(repository, remote):
         if not remote_name: # add the remote
             m = hashlib.md5()
             m.update(repository.url)
-            remote_name = "{0}_{1}".format(DEFAULT_NEW_REMOTE_NAME,m.hexdigest()[:10])
+            remote_name = "{0}_{1}".format(DEFAULT_NEW_REMOTE_NAME, m.hexdigest()[:10])
             git(['remote', 'add', remote_name, repository.url])
 
         # fetch from remote
@@ -368,64 +368,52 @@ def add_path_to_gitignore(path):
         with open(gitignore_name, 'a') as fh:
             fh.write('\n# External git repository. Added by {1}\n{0}'.format(new_entry, sys.argv[0]))
 
-def refresh_dependencies(args):
+def iter_repositories():
+    """return tuples (dependency, remote, repository) of depending on the current configuration"""
     config = get_configuration()
     repo_root = repository_root()
     for dep_path, dependency in config.dependencies.items():
-        print(u'\n--- path {0}'.format(dep_path))
-
-        dep_path_clean = dep_path.strip().lstrip('/')
-
-        # create nested directories if neccessary
-        if os.path.dirname(dep_path_clean):
-            try:
-                os.makedirs(os.path.join(repo_root, os.path.dirname(dep_path_clean)))
-            except os.error:
-                pass # already exists or real error
-
-        dep_path_full = os.path.join(repo_root, dep_path_clean)
 
         if dependency.remote not in config.remotes:
             raise Exception("The remote {0} of {1} is not configured".format(dependency.remote, dep_path))
         remote = config.remotes[dependency.remote]
 
+        dep_path_full = os.path.join(repo_root, dependency.path.lstrip('/'))
         repository = Repository(
                 url=os.path.join(remote.url, dependency.remote_path).rstrip('/'),
                 version=dependency.version,
                 directory=dep_path_full
         )
+        yield dependency, remote, repository
+
+
+def refresh_dependencies(args):
+    for dependency, remote, repository in iter_repositories():
+        print(u'\n--- path {0}'.format(dependency.path))
+
+        # create nested directories if neccessary
+        if os.path.dirname(repository.directory):
+            try:
+                os.makedirs(os.path.dirname(repository.directory))
+            except os.error:
+                pass # already exists or real error
 
         if os.path.exists(repository.directory):
             update_repo(repository, remote)
         else:
             clone_repo(repository, remote)
-        add_path_to_gitignore(dep_path)
+        add_path_to_gitignore(dependency.path)
+
 
 def for_each_dependency(git_command):
-    config = get_configuration()
-    repo_root = repository_root()
-    for dep_path, dependency in config.dependencies.items():
-        print(u'\n--- path {0}'.format(dep_path))
-
-        dep_path_clean = dep_path.strip().lstrip('/')
-        dep_path_full = os.path.join(repo_root, dep_path_clean)
-
-        if dependency.remote not in config.remotes:
-            raise Exception("The remote {0} of {1} is not configured".format(dependency.remote, dep_path))
-        remote = config.remotes[dependency.remote]
-
-        repository = Repository(
-                url=os.path.join(remote.url, dependency.remote_path).rstrip('/'),
-                version=dependency.version,
-                directory=dep_path_full
-        )
+    for dependency, remote, repository in iter_repositories():
+        print(u'\n--- path {0}'.format(dependency.path))
 
         if os.path.exists(repository.directory):
             with change_cwd(repository.directory):
                 git(git_command, keyfile=remote.keyfile, echo=True)
         else:
             print(u'---> does not exist yet - try \'refresh\'')
-
 
 
 def run_cli_app():
