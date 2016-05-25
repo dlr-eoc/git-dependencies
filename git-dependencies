@@ -10,10 +10,15 @@ Available commands are:
     refresh:  download all dependencies. When dependencies have been 
               downloaded before, their repositories will be updated
               from remote
+
     init:     alias for 'refresh'
+
     help:     print the help text and exit
+
     status:   show the git status all dependencies. 
+
     version:  Display the version number of git-dependencies
+
     for-each: Execute a git command in each of the repositories of 
               the dependencies.
               When passing options to git using this function you 
@@ -22,6 +27,10 @@ Available commands are:
               itself. Example:
 
                   git dependencies for-each -- remote -v
+
+
+    ls-dependency-dirs : list the absolute paths of all dependency
+              directories
 
 
 This tool is configured using a configuration file named
@@ -415,6 +424,10 @@ def for_each_dependency(git_command):
         else:
             print(u'---> does not exist yet - try \'refresh\'')
 
+def ls_dependency_dirs(args):
+    for dependency, remote, repository in iter_repositories():
+        print(repository.directory)
+
 
 def run_cli_app():
     parser = argparse.ArgumentParser(
@@ -440,6 +453,7 @@ def run_cli_app():
         'status': status_command,
         'version': version_command,
         'for-each': foreach_command,
+        'ls-dependency-dirs': ls_dependency_dirs,
     }
 
     parser.add_argument('command', nargs=1, metavar='command',
