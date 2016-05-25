@@ -1,38 +1,33 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # vi: set ft=py
+
 """
 Fetch external dependencies from their git repositories and integrate
 them in the working tree.
+"""
 
-Available commands are:
-    
-    refresh:  download all dependencies. When dependencies have been 
-              downloaded before, their repositories will be updated
-              from remote
+__version__ = '0.2.4'
 
-    init:     alias for 'refresh'
+import argparse
+import contextlib
+import getpass
+import os
+import os.path
+import re
+import sys
+import hashlib
+import collections
+import tempfile
+import stat
 
-    help:     print the help text and exit
+# non-stdlib dependencies
+import yaml
+import pexpect
 
-    status:   show the git status all dependencies. 
-
-    version:  Display the version number of git-dependencies
-
-    for-each: Execute a git command in each of the repositories of 
-              the dependencies.
-              When passing options to git using this function you 
-              need to seperate the command from the subcommand using
-              "--", so git-dependencies does not interpret the options
-              itself. Example:
-
-                  git dependencies for-each -- remote -v
-
-
-    ls-dependency-dirs : list the absolute paths of all dependency
-              directories
-
-
+# help texts
+HELP_ABSTRACT = sys.modules[__name__].__doc__
+HELP_DETAILS = """
 This tool is configured using a configuration file named
 'dependencies.yml' in the root of the directory.
 
@@ -68,24 +63,6 @@ a directory already managed by git-dependencies. When the directive is
 true, the target of a dependency will be used as the remote_path setting.
 This directive defaults to False and is optional.
 """
-
-__version__ = '0.2.4'
-
-import argparse
-import contextlib
-import getpass
-import os
-import os.path
-import re
-import sys
-import hashlib
-import collections
-import tempfile
-import stat
-
-# non-stdlib dependencies
-import yaml
-import pexpect
 
 GIT_BINARY='git'
 DEFAULT_NEW_REMOTE_NAME='dependency-mgmnt'
@@ -396,7 +373,12 @@ def iter_repositories():
         yield dependency, remote, repository
 
 
-def refresh_dependencies(args):
+def command_refresh(args):
+    """
+    download all dependencies. When dependencies have been 
+    downloaded before, their repositories will be updated
+    from remote.
+    """
     for dependency, remote, repository in iter_repositories():
         print(u'\n--- path {0}'.format(dependency.path))
 
@@ -424,45 +406,81 @@ def for_each_dependency(git_command):
         else:
             print(u'---> does not exist yet - try \'refresh\'')
 
-def ls_dependency_dirs(args):
+def command_ls_dependency_dirs(args):
+    """
+    List the absolute paths of all dependency directories
+    """
     for dependency, remote, repository in iter_repositories():
         print(repository.directory)
 
+def command_version(args):
+    """
+    Display the version number of git-dependencies.
+    """
+    print(__version__)
+
+def command_foreach(args):
+    """
+    Execute a git command in each of the repositories of 
+    the dependencies.
+    When passing options to git using this function you 
+    need to seperate the command from the subcommand using
+    "--", so git-dependencies does not interpret the options
+    itself. Example: 
+
+          git dependencies for-each -- remote -v
+    """
+    for_each_dependency(args.subcommand)
+
+def command_status(args):
+    """
+    show the git status all dependencies.
+    """
+    for_each_dependency(['status', ])
+
+def command_help(args):
+    """
+    Print the help text and exit.
+    """
+    pass # alibi function. handled seperately later on
 
 def run_cli_app():
+
+    dispatch = collections.OrderedDict()
+    dispatch['refresh'] = command_refresh
+    dispatch['init'] = command_refresh
+    dispatch['help'] = command_help
+    dispatch['status'] = command_status
+    dispatch['version'] = command_version
+    dispatch['for-each'] = command_foreach
+    dispatch['ls-dependency-dirs'] = command_ls_dependency_dirs
+
+    def make_help_text():
+        parts = [HELP_ABSTRACT,]
+
+        # help texts for the commands
+        for cmd_name, cmd in dispatch.items():
+            parts.append('\n     {0}\n'.format(cmd_name))
+            if cmd.__doc__:
+                for line in cmd.__doc__.split('\n'):
+                    parts.append('      {0}\n'.format(line))
+
+        parts.append(HELP_DETAILS)
+        return ''.join(parts)
+
     parser = argparse.ArgumentParser(
-            description=sys.modules[__name__].__doc__,
+            description=make_help_text(),
             formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    def help_command(args):
-        parser.print_help()
-
-    def version_command(args):
-        print(__version__)
-    
-    def status_command(args):
-        for_each_dependency(['status', ])
-
-    def foreach_command(args):
-        for_each_dependency(args.subcommand)
-
-    dispatch = {
-        'refresh': refresh_dependencies,
-        'init': refresh_dependencies,
-        'help': help_command,
-        'status': status_command,
-        'version': version_command,
-        'for-each': foreach_command,
-        'ls-dependency-dirs': ls_dependency_dirs,
-    }
-
     parser.add_argument('command', nargs=1, metavar='command',
             help='The command to execute. Available are {0}'.format(', '.join(dispatch.keys())))
     parser.add_argument('subcommand', nargs='*', metavar='subcommand',
             help='Command-specific subcommands')
     args = parser.parse_args()
 
-    if args.command[0] not in dispatch.keys():
+    if args.command[0] == 'help':
+        parser.print_help()
+    elif args.command[0] not in dispatch.keys():
         fail("Unknown command: {0}.\nAvailable are: {1}".format(
                 args.command[0],
                 ', '.join(dispatch.keys())
