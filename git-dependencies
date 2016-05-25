@@ -105,6 +105,9 @@ def fail(msg, rc=1):
     sys.stderr.write('\n')
     sys.exit(rc)
 
+def str_is_empty_lines(s):
+    return not s or re.match('^\s*$', s) is not None
+
 def git(args, cwd=None, echo=True, keyfile=None):
     global CREDENTIALS
 
@@ -140,7 +143,7 @@ def git(args, cwd=None, echo=True, keyfile=None):
                     "Username for '(.*?)':",
                     "Password for '(.*?)':",
                 ])
-        if echo:
+        if echo and not str_is_empty_lines(git_proc.before):
             print(git_proc.before)
 
         if idx == 0:
