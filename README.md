@@ -28,6 +28,15 @@ See "git-dependencies -h":
         help:     print the help text and exit
         status:   show the git status all dependencies. 
         version:  Display the version number of git-dependencies
+        for-each: Execute a git command in each of the repositories of 
+                  the dependencies.
+                  When passing options to git using this function you 
+                  need to seperate the command from the subcommand using
+                  "--", so git-dependencies does not interpret the options
+                  itself. Example:
+
+                      git dependencies for-each -- remote -v
+
 
     This tool is configured using a configuration file named
     'dependencies.yml' in the root of the directory.

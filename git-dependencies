@@ -14,6 +14,14 @@ Available commands are:
     help:     print the help text and exit
     status:   show the git status all dependencies. 
     version:  Display the version number of git-dependencies
+    for-each: Execute a git command in each of the repositories of 
+              the dependencies.
+              When passing options to git using this function you 
+              need to seperate the command from the subcommand using
+              "--", so git-dependencies does not interpret the options
+              itself. Example:
+
+                  git dependencies for-each -- remote -v
 
 
 This tool is configured using a configuration file named
@@ -52,7 +60,7 @@ true, the target of a dependency will be used as the remote_path setting.
 This directive defaults to False and is optional.
 """
 
-__version__ = '0.2.3'
+__version__ = '0.2.4'
 
 import argparse
 import contextlib
@@ -109,12 +117,13 @@ def fail(msg, rc=1):
 def str_is_empty_lines(s):
     return not s or re.match('^\s*$', s) is not None
 
-def git(args, cwd=None, echo=True, keyfile=None):
+def git(git_args, cwd=None, echo=True, keyfile=None):
     global CREDENTIALS
 
     if echo:
-        print(' '.join(args))
+        print(' '.join(git_args))
 
+    args = ['--no-pager', ] + git_args # never use a pager to display longer texts.
     env = os.environ
     env['LANG'] = 'C' # get english output from git
 
@@ -431,7 +440,10 @@ def run_cli_app():
         print(__version__)
     
     def status_command(args):
-        for_each_dependency(['status'])
+        for_each_dependency(['status', ])
+
+    def foreach_command(args):
+        for_each_dependency(args.subcommand)
 
     dispatch = {
         'refresh': refresh_dependencies,
@@ -439,6 +451,7 @@ def run_cli_app():
         'help': help_command,
         'status': status_command,
         'version': version_command,
+        'for-each': foreach_command,
     }
 
     parser.add_argument('command', nargs=1, metavar='command',
