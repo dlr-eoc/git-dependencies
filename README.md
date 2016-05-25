@@ -27,6 +27,7 @@ See "git-dependencies -h":
         init:     alias for 'refresh'
         help:     print the help text and exit
         status:   show the git status all dependencies. 
+        version:  Display the version number of git-dependencies
 
     This tool is configured using a configuration file named
     'dependencies.yml' in the root of the directory.

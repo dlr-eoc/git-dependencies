@@ -13,6 +13,7 @@ Available commands are:
     init:     alias for 'refresh'
     help:     print the help text and exit
     status:   show the git status all dependencies. 
+    version:  Display the version number of git-dependencies
 
 
 This tool is configured using a configuration file named
@@ -51,7 +52,7 @@ true, the target of a dependency will be used as the remote_path setting.
 This directive defaults to False and is optional.
 """
 
-__version__ = '0.2.2'
+__version__ = '0.2.3'
 
 import argparse
 import contextlib
@@ -425,6 +426,9 @@ def run_cli_app():
     )
     def help_command(args):
         parser.print_help()
+
+    def version_command(args):
+        print(__version__)
     
     def status_command(args):
         for_each_dependency(['status'])
@@ -434,6 +438,7 @@ def run_cli_app():
         'init': refresh_dependencies,
         'help': help_command,
         'status': status_command,
+        'version': version_command,
     }
 
     parser.add_argument('command', nargs=1, metavar='command',
