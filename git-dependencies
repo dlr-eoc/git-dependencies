@@ -112,6 +112,8 @@ def git(git_args, cwd=None, echo=True, keyfile=None):
     args = ['--no-pager', ] + git_args # never use a pager to display longer texts.
     env = os.environ
     env['LANG'] = 'C' # get english output from git
+    env['PAGER'] = 'cat' # even when "--no-pager" is passed to git, "--help" for example
+                         # still uses a pager. So using 'cat' as pager should resolve that.
 
     git_ssh_wrapper = None
     if keyfile:
