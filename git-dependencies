@@ -238,11 +238,11 @@ def get_configuration():
         remote = remotes[v['remote']]
 
         remote_path = None
-        if v.get('remote_path'):
+        if remote.use_target_as_remote_path:
+            remote_path = path
+        elif v.get('remote_path'):
             # explicit definition always overrides
             remote_path = v['remote_path']
-        elif remote.use_target_as_remote_path:
-            remote_path = path
 
         if not remote_path:
             fail(u"Got no remote path to fetch the repository at {0} from.".format(path))
