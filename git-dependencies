@@ -115,61 +115,70 @@ def git(git_args, cwd=None, echo=True, keyfile=None):
     env['PAGER'] = 'cat' # even when "--no-pager" is passed to git, "--help" for example
                          # still uses a pager. So using 'cat' as pager should resolve that.
 
+
     git_ssh_wrapper = None
-    if keyfile:
-        # create an ssh wrapper script to pass the key to the ssh client
-        git_ssh_wrapper = tempfile.NamedTemporaryFile(delete=True)
-        git_ssh_wrapper.write("#!/bin/bash\nssh -i \"{0}\" \"$@\"".format(keyfile))
-        git_ssh_wrapper.flush()
+    try:
+        if keyfile:
+            # create an ssh wrapper script to pass the key to the ssh client
+            git_ssh_wrapper = tempfile.NamedTemporaryFile(delete=False) # delete the file manually after git has termintated
+            git_ssh_wrapper.write("#!/bin/bash\nssh -i \"{0}\" \"$@\"".format(keyfile))
+            git_ssh_wrapper.flush()
+            git_ssh_wrapper.close() # has to be closed to avoid "cannot exec '/tmp/tmp...': Text file busy"
 
-        # make the wrapper executable
-        st = os.stat(git_ssh_wrapper.name)
-        os.chmod(git_ssh_wrapper.name, st.st_mode | stat.S_IEXEC)
+            # make the wrapper executable
+            st = os.stat(git_ssh_wrapper.name)
+            os.chmod(git_ssh_wrapper.name, st.st_mode | stat.S_IEXEC)
 
-        env['GIT_SSH']=git_ssh_wrapper.name
-        
-    git_proc = pexpect.spawn(GIT_BINARY, args,
-            cwd=cwd,
-            env=env)
-    git_proc.setecho(False) # no direct output from git
+            env['GIT_SSH']=git_ssh_wrapper.name
+            
+        git_proc = pexpect.spawn(GIT_BINARY, args,
+                cwd=cwd,
+                env=env)
+        git_proc.setecho(False) # no direct output from git
 
-    eof = False
-    username = None
-    while not eof:
-        idx = git_proc.expect([
-                    pexpect.EOF,
-                    "Username for '(.*?)':",
-                    "Password for '(.*?)':",
-                ])
-        if echo and not str_is_empty_lines(git_proc.before):
-            print(git_proc.before)
+        eof = False
+        username = None
+        while not eof:
+            idx = git_proc.expect([
+                        pexpect.EOF,
+                        "Username for '(.*?)':",
+                        "Password for '(.*?)':",
+                    ])
+            if echo and not str_is_empty_lines(git_proc.before):
+                print(git_proc.before)
 
-        if idx == 0:
-            eof = True
-        else:
-            remote_name = git_proc.match.group(1)
-            if username:
-                remote_name = remote_name.replace('{0}@'.format(username), '')
+            if idx == 0:
+                eof = True
+            else:
+                remote_name = git_proc.match.group(1)
+                if username:
+                    remote_name = remote_name.replace('{0}@'.format(username), '')
 
-            if idx == 1:
-                username = CREDENTIALS[remote_name].get('user')
-                if not username:
-                    sys.stdout.write("Username for '{0}':".format(remote_name))
-                    username = sys.stdin.readline().strip()
-                    CREDENTIALS[remote_name]['user'] = username
-                git_proc.sendline(username)
-            elif idx == 2:
-                password = CREDENTIALS[remote_name].get('password')
-                if not password:
-                    password = getpass.getpass("Password for '{0}':".format(remote_name))
-                    CREDENTIALS[remote_name]['password'] = password
-                git_proc.sendline(password)
+                if idx == 1:
+                    username = CREDENTIALS[remote_name].get('user')
+                    if not username:
+                        sys.stdout.write("Username for '{0}':".format(remote_name))
+                        username = sys.stdin.readline().strip()
+                        CREDENTIALS[remote_name]['user'] = username
+                    git_proc.sendline(username)
+                elif idx == 2:
+                    password = CREDENTIALS[remote_name].get('password')
+                    if not password:
+                        password = getpass.getpass("Password for '{0}':".format(remote_name))
+                        CREDENTIALS[remote_name]['password'] = password
+                    git_proc.sendline(password)
 
-    git_proc.close() 
-    rc = git_proc.exitstatus
-    if rc:
-        raise GitError( u"\nCommand {0} failed with RC={1}:\n{1}".format(u' '.join(args), rc, git_proc.before), rc=rc)
-    return git_proc.before
+        git_proc.close() 
+        rc = git_proc.exitstatus
+        if rc:
+            raise GitError( u"\nCommand {0} failed with RC={1}:\n{1}".format(u' '.join(args), rc, git_proc.before), rc=rc)
+        return git_proc.before
+    finally:
+        if git_ssh_wrapper:
+            try:
+                os.unlink(git_ssh_wrapper.name)
+            except:
+                pass
 
 def repository_root():
     """get the root directory of the repository we are in."""
