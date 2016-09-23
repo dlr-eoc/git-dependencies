@@ -26,5 +26,6 @@ setup(name='git-dependencies',
     author_email='nico.mandery@dlr.de',
     scripts=['git-dependencies'],
     install_requires=['PyYAML>=3.0', 'pexpect>=3.1'],
-    url="http://git.ukis.eoc.dlr.de/projects/ADMIN/repos/git-dependencies"
+    url="http://git.ukis.eoc.dlr.de/projects/ADMIN/repos/git-dependencies",
+    license='Apache License 2.0',
 )
