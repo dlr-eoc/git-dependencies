@@ -150,6 +150,7 @@ def git(git_args, cwd=None, echo=True, keyfile=None):
             
         git_proc = pexpect.spawn(GIT_BINARY, args,
                 cwd=cwd,
+                timeout=60*10,
                 env=env)
         git_proc.setecho(False) # no direct output from git
 
